@@ -1,0 +1,221 @@
+---
+title: "Quora Data Challenge"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document:
+    df_print: paged
+---
+
+```{r}
+library("tidyverse")
+```
+
+# Conduct a t-test
+
+## Read data
+```{r}
+t1 <- read_csv("t1_user_active_min.csv")
+t2 <- read_csv("t2_user_variant.csv")
+```
+
+## Brief view
+```{r}
+head(t1)
+head(t2)
+```
+
+## Find outliers and remove them
+```{r}
+outlier_values <- boxplot.stats(t1$active_mins)$out
+
+t1 <- t1[-which(t1$active_mins %in% outlier_values), ]
+```
+
+## Join `t1` and `t2`
+```{r}
+after <- t1 %>% 
+  group_by(uid) %>% 
+  summarise(
+    mean_active_mins = mean(active_mins)
+  ) %>% 
+  left_join(t2, by = "uid")
+```
+
+```{r}
+head(after)
+```
+
+## t-test
+```{r}
+control <- after$mean_active_mins[which(after$variant_number == 0)]
+treatment <- after$mean_active_mins[which(after$variant_number == 1)]
+```
+
+```{r}
+t.test(control, treatment)
+```
+
+# Gathering additional data
+
+## Read data
+```{r}
+t3 <- read_csv("t3_user_active_min_pre.csv")
+```
+
+```{r}
+head(t3)
+```
+
+## Data manipulation
+```{r}
+outlier_values_t3 <- boxplot.stats(t3$active_mins)$out
+
+t3 <- t3[-which(t3$active_mins %in% outlier_values_t3), ]
+```
+
+```{r}
+before_after <- t3 %>% 
+  group_by(uid) %>% 
+  summarise(
+    mean_active_mins_before = mean(active_mins)
+  ) %>% 
+  right_join(after, by = "uid") %>% 
+  mutate(
+    diff = mean_active_mins - mean_active_mins_before
+  ) %>% 
+  select(uid, variant_number, diff)
+```
+
+```{r}
+head(before_after)
+```
+
+## t-test
+```{r}
+diff_control <- before_after$diff[which(before_after$variant_number == 0)]
+
+diff_treatment <- before_after$diff[which(before_after$variant_number == 1)]
+```
+
+```{r}
+t.test(diff_control, diff_treatment)
+```
+
+# Deeper dive
+
+## Read data
+```{r}
+t4 <- read_csv("t4_user_attributes.csv")
+```
+
+```{r}
+head(t4)
+```
+
+## Join `t2` and `t4`
+```{r}
+info <- t2 %>% 
+  left_join(t4, by = "uid")
+```
+
+```{r}
+head(info)
+```
+
+## Views
+```{r}
+info %>% 
+  group_by(variant_number) %>% 
+  summarise(
+    cnt = n()
+  )
+```
+
+```{r}
+info %>% 
+  group_by(variant_number, gender) %>% 
+  summarise(
+    cnt = n()
+  )
+```
+
+```{r}
+info %>% 
+  group_by(variant_number, user_type) %>% 
+  summarise(
+    cnt = n()
+  )
+```
+
+```{r}
+info %>% 
+  group_by(variant_number, gender, user_type) %>% 
+  summarise(
+    cnt = n()
+  )
+```
+
+## The comprehensive dataset
+```{r}
+data <- t1 %>% 
+  group_by(uid) %>% 
+  summarise(
+    after_mean_active_mins = mean(active_mins)
+  ) %>% 
+  left_join(info, by = "uid")
+  
+data <- t3 %>% 
+  group_by(uid) %>% 
+  summarise(
+    before_mean_active_mins = mean(active_mins)
+  ) %>% 
+  right_join(data, by = "uid") %>% 
+  select(
+    uid, 
+    variant_number, 
+    gender, user_type, 
+    after_mean_active_mins, 
+    before_mean_active_mins
+    ) %>% 
+  mutate(
+    diff = after_mean_active_mins - before_mean_active_mins
+  )
+  
+```
+
+```{r}
+head(data)
+```
+
+```{r}
+result <- tibble(gender = as.character(), user_type = as.character(), diff = as.numeric())
+```
+
+```{r}
+for (i in unique(data$gender)){
+  for (j in unique(data$user_type)){
+    slice = data %>% 
+      filter(
+        gender == i,
+        user_type == j
+      )
+    
+    control = slice$diff[which(slice$variant_number == 0)]
+    treatment = slice$diff[which(slice$variant_number == 1)]
+    
+    test = t.test(control, treatment)
+    
+    diff = as.numeric(test$estimate[2] - test$estimate[1])
+    
+    tmp = tibble(gender = i, user_type = j, diff = diff)
+    
+    result = rbind(result, tmp)
+  }
+}
+```
+
+```{r}
+result %>% arrange(desc(result$diff))
+```
+
